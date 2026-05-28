@@ -1,28 +1,23 @@
-"""
-RA-AMON SOLAR · Servidor Flask
-Railway.app deployment
-"""
-import os, base64, tempfile, shutil, json
+import os, base64, tempfile, shutil
 from pathlib import Path
-from flask import Flask, request, jsonify, send_from_directory, Response
+from flask import Flask, request, jsonify, send_file, Response
 from motor import generar_propuesta
 
-app = Flask(__name__, static_folder='static')
+BASE = Path(__file__).parent
+app  = Flask(__name__)
 PORT = int(os.environ.get('PORT', 8080))
 
 @app.route('/')
 def index():
-    return send_from_directory('static', 'index.html')
+    return send_file(str(BASE / 'static' / 'index.html'))
 
 @app.route('/health')
 def health():
-    plantilla = Path('propuesta_plantilla.pptx')
-    return jsonify({'status':'ok','plantilla':plantilla.exists(),'version':'2.0'})
+    return jsonify({'status':'ok','plantilla':(BASE/'propuesta_plantilla.pptx').exists()})
 
 @app.route('/generar', methods=['POST'])
 def generar():
-    data = request.get_json(force=True) or {}
-
+    data      = request.get_json(force=True) or {}
     nombre    = str(data.get('nombre','')).strip()
     paneles   = int(data.get('paneles', 20))
     precio    = int(data.get('precio', 0))
@@ -31,27 +26,23 @@ def generar():
     inv_kw    = int(data.get('inv_kw', 8))
     inv_fase  = str(data.get('inv_fase','BIFÁSICO')).strip()
 
-    # Validaciones
     if not nombre:
         return jsonify({'error':'Nombre del cliente requerido'}), 400
     if precio < 1_000_000:
-        return jsonify({'error':'Precio inválido (mín. $1.000.000)'}), 400
+        return jsonify({'error':'Precio inválido'}), 400
     if not (1 <= paneles <= 200):
-        return jsonify({'error':'Cantidad de paneles inválida (1-200)'}), 400
+        return jsonify({'error':'Cantidad de paneles inválida'}), 400
 
     tmp = tempfile.mkdtemp()
     try:
         output_path, datos = generar_propuesta(
             nombre, paneles, precio,
-            inv_marca, inv_modelo, inv_kw, inv_fase, tmp
-        )
+            inv_marca, inv_modelo, inv_kw, inv_fase, tmp)
         with open(output_path,'rb') as f:
             b64 = base64.b64encode(f.read()).decode()
-
-        nombre_arch = Path(output_path).name
         return jsonify({
             'ok': True,
-            'filename': nombre_arch,
+            'filename': Path(output_path).name,
             'data': b64,
             'resumen': {
                 'payback':  round(datos['payback'], 2),
